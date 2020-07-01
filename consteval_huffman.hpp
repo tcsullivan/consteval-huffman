@@ -9,25 +9,13 @@
  * @tparam data Expected to be a null-terminated `char` of data to be compressed.
  */
 template<auto data>
-struct huffman_compress
+class huffman_compress
 {
     using size_t = unsigned long int;
 
-    // Contains the compressed data.
-    unsigned char output[size()] = {};
-    // Contains a 'tree' that can be used to decompress the data.
-    unsigned char decode_tree[3 * tree_count()] = {};
-
-    // Returns the size of the compressed data, in bytes.
-    consteval static auto size() { return output_size().first; }
-    // Returns how many of the bits in the last byte of `output` are actually part of the data.
-    consteval static auto lastbitscount() { return output_size().second; }
-
-    consteval huffman_compress() {
-        build_decode_tree();
-        compress();
-    }
-
+    // The internals for this class needed to be defined before they're used in
+    // the public interface. Scroll to the next `public` section for usable variables/functions.
+private:
     // Node structure used for tree-building.
     struct node {
         int value = 0;
@@ -159,6 +147,22 @@ struct huffman_compress
             decode_tree[i + 1] = std::max(tree[i].right, 0);
         }
         delete[] tree.data();
+    }
+
+public:
+    // Returns the size of the compressed data, in bytes.
+    consteval static auto size() { return output_size().first; }
+    // Returns how many of the bits in the last byte of `output` are actually part of the data.
+    consteval static auto lastbitscount() { return output_size().second; }
+
+    // Contains the compressed data.
+    unsigned char output[size()] = {};
+    // Contains a 'tree' that can be used to decompress the data.
+    unsigned char decode_tree[3 * tree_count()] = {};
+
+    consteval huffman_compress() {
+        build_decode_tree();
+        compress();
     }
 };
 
