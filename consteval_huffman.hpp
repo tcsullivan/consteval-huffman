@@ -9,9 +9,8 @@
  * @tparam data Expected to be a null-terminated `char` of data to be compressed.
  */
 template<auto data>
-class huffman_compress
+struct huffman_compress
 {
-public:
     using size_t = unsigned long int;
 
     // Contains the compressed data.
@@ -29,7 +28,6 @@ public:
         compress();
     }
 
-private:
     // Node structure used for tree-building.
     struct node {
         int value = 0;
