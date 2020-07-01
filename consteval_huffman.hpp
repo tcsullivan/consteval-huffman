@@ -130,8 +130,10 @@ private:
                     output[bytes - 1] |= (1 << bits);
                 if (++bits == 8) {
                     bits = 0;
-                    if (--bytes == 0)
-                        return;
+                    if (--bytes == 0) {
+                        i = 1;
+                        break;
+                    }
                 }
                 leaf = parent;
             }
