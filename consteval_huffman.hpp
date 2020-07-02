@@ -55,7 +55,7 @@ private:
         
         auto end = node_count();
         size_t endend = 255;
-        unsigned char endv = 0xFF;
+        unsigned char endv = 0xFE;
         while (table[1].freq != 0) {
             node n { endv--,
                      table[0].freq + table[1].freq,
@@ -103,9 +103,10 @@ private:
     // Returns a pair: [total byte size, bits used in last byte].
     consteval static auto output_size() {
         auto tree = build_node_tree();
-        size_t bytes = 0, bits = 0;
+        size_t bytes = 1, bits = 0;
         for (size_t i = 0; i < std::char_traits<char>::length(data); i++) {
-            auto leaf = std::find_if(tree.begin(), tree.end(), [c = data[i]](auto& n) { return n.value == c; });
+            auto leaf = std::find_if(tree.begin(), tree.end(),
+                                     [c = data[i]](auto& n) { return n.value == c; });
             while (leaf->parent != -1) {
                 if (++bits == 8)
                     bits = 0, bytes++;
@@ -114,27 +115,23 @@ private:
         }
 
         delete[] tree.data();
-        return std::make_pair(bytes + 1, bits);
+        return std::make_pair(bytes, bits);
     }
     // Compresses the input data, placing the result in `output`.
     consteval void compress()
     {
         auto tree = build_node_tree();
         size_t bytes = size();
-        int bits = 5;
+        int bits = 8 - output_size().second;
         for (size_t i = std::char_traits<char>::length(data); i > 0; i--) {
-            auto leaf = std::find_if(tree.begin(), tree.begin() + tree_count(), [c = data[i - 1]](auto& n) { return n.value == c; });
+            auto leaf = std::find_if(tree.begin(), tree.begin() + tree_count(),
+                                     [c = data[i - 1]](auto& n) { return n.value == c; });
             while (leaf->parent != -1) {
                 auto parent = tree.begin() + leaf->parent;
                 if (parent->right == leaf->value)
                     output[bytes - 1] |= (1 << bits);
-                if (++bits == 8) {
-                    bits = 0;
-                    if (--bytes == 0) {
-                        i = 1;
-                        break;
-                    }
-                }
+                if (++bits == 8)
+                    bits = 0, --bytes;
                 leaf = parent;
             }
         }
@@ -143,10 +140,21 @@ private:
     // Builds the tree that can be used for decompression, stored in `decode_tree`.
     consteval void build_decode_tree() {
         auto tree = build_node_tree();
+
         for (size_t i = 0; i < tree_count(); i++) {
-            decode_tree[i] = tree[i].value;
-            decode_tree[i + 1] = std::max(tree[i].left, 0);
-            decode_tree[i + 1] = std::max(tree[i].right, 0);
+            decode_tree[i * 3] = tree[i].value;
+
+            size_t j;
+            for (j = i + 1; j < tree_count(); j++) {
+                if (tree[i].left == tree[j].value)
+                    break;
+            }
+            decode_tree[i * 3 + 1] = j < tree_count() ? j : 0;
+            for (j = i + 1; j < tree_count(); j++) {
+                if (tree[i].right == tree[j].value)
+                    break;
+            }
+            decode_tree[i * 3 + 2] = j < tree_count() ? j : 0;
         }
         delete[] tree.data();
     }
@@ -165,6 +173,48 @@ public:
     consteval huffman_compress() {
         build_decode_tree();
         compress();
+    }
+
+    // Utility for decoding compressed data.
+    class decode_info {
+    public:
+        decode_info(const huffman_compress<data>& data_) :
+            m_data(data_) { get_next(); }
+
+        // Checks if another byte is available
+        operator bool() const {
+            return m_pos < (m_data.size() - 1) || m_bit >= (8 - m_data.lastbitscount());
+        }
+        // Gets the current byte
+        int operator*() const { return m_current; }
+        // Moves to the next byte
+        int operator++() {
+            get_next();
+            return m_current;
+        }
+
+    private:
+        // Internal: moves to next byte
+        void get_next() {
+            auto node = m_data.decode_tree;
+            do {
+                bool bit = m_data.output[m_pos] & (1 << (m_bit - 1));
+                if (--m_bit == 0)
+                    m_bit = 8, m_pos++;
+                node = m_data.decode_tree + 3 * node[bit ? 2 : 1];
+            } while (node[1] != 0);
+            m_current = *node;
+        }
+
+        const huffman_compress<data>& m_data;
+        size_t m_pos = 0;
+        unsigned char m_bit = 8;
+        int m_current = -1;
+    };
+
+    // Creates a decoder object for iteratively decompressing the data.
+    auto get_decoder() const {
+        return decode_info(*this);
     }
 };
 
