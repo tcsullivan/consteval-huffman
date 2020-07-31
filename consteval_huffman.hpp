@@ -8,7 +8,7 @@
  * Compresses given data at compile-time, while also providing utilities for decoding.
  * @tparam data Expected to be a null-terminated `char` of data to be compressed.
  */
-template<auto data>
+template<const char *data>
 class huffman_compress
 {
     using size_t = unsigned long int;
@@ -122,7 +122,11 @@ private:
     {
         auto tree = build_node_tree();
         size_t bytes = size();
-        int bits = 8 - output_size().second;
+        int bits;
+        if (auto bitscount = output_size().second; bitscount > 0)
+            bits = 8 - bitscount;
+        else
+            bits = 0, bytes--;
         for (size_t i = std::char_traits<char>::length(data); i > 0; i--) {
             auto leaf = std::find_if(tree.begin(), tree.begin() + tree_count(),
                                      [c = data[i - 1]](auto& n) { return n.value == c; });
@@ -183,7 +187,7 @@ public:
 
         // Checks if another byte is available
         operator bool() const {
-            return m_pos < (m_data.size() - 1) || m_bit >= (8 - m_data.lastbitscount());
+            return m_pos < (m_data.size() - 1) || m_bit > (8 - m_data.lastbitscount());
         }
         // Gets the current byte
         int operator*() const { return m_current; }
