@@ -43,37 +43,34 @@ private:
      * @return Compile-time allocated array of nodes
      */
     consteval static auto build_node_list() {
-        auto table = std::span(new node[256] {}, 256);
+        // Build a list for counting every occuring value
+        auto list = std::span(new node[256] {}, 256);
         for (int i = 0; i < 256; i++)
-            table[i].value = i;
+            list[i].value = i;
         for (size_t i = 0; i < data_length; i++)
-            table[data[i]].freq++;
+            list[data[i]].freq++;
 
-        std::sort(table.begin(), table.end(), [](auto& a, auto& b) { return a.freq < b.freq; });
+        std::sort(list.begin(), list.end(),
+            [](const auto& a, const auto& b) { return a.freq < b.freq; });
 
-        auto first_valid_node = std::find_if(table.begin(), table.end(),
+        // Filter out the non-occuring values, and build a compact list to return
+        auto first_valid_node = std::find_if(list.begin(), list.end(),
             [](const auto& n) { return n.freq != 0; });
-        auto iter = std::copy(first_valid_node, table.end(), table.begin());
-        std::fill(iter, table.end(), node());
-        return table;
+        auto fit_size = std::distance(first_valid_node, list.end());
+        auto fit_list = std::span(new node[fit_size] {}, fit_size);
+        std::copy(first_valid_node, list.end(), fit_list.begin());
+        delete[] list.data();
+        return fit_list;
     }
 
     /**
-     * Counts how many nodes in build_node_list() are valid.
-     * @return Number of valid nodes, i.e. the "size" of the list.
+     * Returns the count of how many nodes are in the node tree.
      */
-    consteval static auto node_count() {
-        auto table = build_node_list();
-        size_t i;
-        for (i = 0; table[i].freq != 0; i++);
-        delete[] table.data();
-        return i;
-    }
-
-    // Returns the count of how many nodes are in the node tree.
-public:
     consteval static auto tree_count() {
-        return node_count() * 2 - 1;
+        auto list = build_node_list();
+        auto count = list.size() * 2 - 1;
+        delete[] list.data();
+        return count;
     }
 
     /**
@@ -85,32 +82,37 @@ public:
         auto list = build_node_list();
         auto tree = std::span(new node[tree_count()] {}, tree_count());
         
-        auto list_end = node_count();
-        auto tree_begin = tree.end();
-        int next_merged_node_value = 0x100;
-        while (list[1].freq != 0) {
-            // Create the merged parent node
+        auto list_end = list.end(); // Track end of list as it shrinks
+        auto tree_begin = tree.end(); // Build tree from bottom
+        int next_parent_node_value = 0x100; // Give parent nodes unique ids
+        while (1) {
+            // Create parent node for two least-occuring values
             node new_node {
-                next_merged_node_value++,
+                next_parent_node_value++,
                 list[0].freq + list[1].freq,
                 -1,
                 list[0].value,
                 list[1].value
             };
 
+            // Move the two nodes into the tree and remove them from the list
             *--tree_begin = list[0];
             *--tree_begin = list[1];
+            std::copy(list.begin() + 2, list_end--, list.begin());
+            if (std::distance(list.begin(), list_end) == 1) {
+                list.front() = new_node;
+                break;
+            }
 
-            auto insertion_point = list.begin();
-            while (insertion_point->freq != 0 && insertion_point->freq < new_node.freq)
-                insertion_point++;
+            // Insert the parent node back into the list
+            auto insertion_point = std::find_if(list.begin(), list_end - 1,
+                [&new_node](const auto& n) { return n.freq >= new_node.freq; });
+            if (insertion_point != list_end - 1) {
+                *(list_end - 1) = node();
+                std::copy_backward(insertion_point, list_end - 1, list_end);
+            }
 
-            std::copy_backward(insertion_point, list.begin() + list_end, list.begin() + list_end + 1);
             *insertion_point = new_node;
-
-            std::copy(list.begin() + 2, list.begin() + list_end + 1, list.begin());
-            list[list_end - 1] = node();
-            list[list_end--] = node();
         }
 
         // Connect child nodes to their parents
@@ -130,14 +132,16 @@ public:
 
     /**
      * Determines the size of the compressed data.
-     * Returns a pair: [total byte size, bits used in last byte].
+     * @return A pair of total bytes used, and bits used in last byte.
      */
-    consteval static auto output_size() {
+    consteval static auto compressed_size_info() {
         auto tree = build_node_tree();
         size_t bytes = 1, bits = 0;
+
         for (size_t i = 0; i < data_length; i++) {
             auto leaf = std::find_if(tree.begin(), tree.end(),
-                                     [c = data[i]](auto& n) { return n.value == c; });
+                [c = data[i]](const auto& n) { return n.value == c; });
+
             while (leaf->parent != -1) {
                 if (++bits == 8)
                     bits = 0, bytes++;
@@ -148,58 +152,76 @@ public:
         delete[] tree.data();
         return std::make_pair(bytes, bits);
     }
-    // Compresses the input data, placing the result in `output`.
+
+    /**
+     * Compresses the input data, storing the result in the object instance.
+     */
     consteval void compress()
     {
         auto tree = build_node_tree();
-        size_t bytes = output_size().first;
-        int bits;
-        if (auto bitscount = output_size().second; bitscount > 0)
-            bits = 8 - bitscount;
+
+        // Set up byte and bit count (note, we're compressing the data backwards)
+        auto [bytes, bits] = compressed_size_info();
+        if (bits > 0)
+            bits = 8 - bits;
         else
             bits = 0, bytes--;
-        for (size_t i = data_length; i > 0; i--) {
+
+        // Compress data backwards, because we obtain the Huffman codes backwards
+        // as we traverse towards the parent node.
+        for (auto i = data_length; i > 0; i--) {
             auto leaf = std::find_if(tree.begin(), tree.end(),
                 [c = data[i - 1]](auto& n) { return n.value == c; });
+
             while (leaf->parent != -1) {
                 auto parent = tree.begin() + leaf->parent;
                 if (parent->right == leaf->value)
-                    output[bytes - 1] |= (1 << bits);
+                    compressed_data[bytes - 1] |= (1 << bits);
                 if (++bits == 8)
                     bits = 0, --bytes;
                 leaf = parent;
             }
         }
+
         delete[] tree.data();
     }
-    // Builds the tree that can be used for decompression, stored in `decode_tree`.
+
+    /**
+     * Builds the decode tree, used to decompress the data.
+     * Format: three bytes per node.
+     *     1. Node value, 2. Distance to left child, 3. Distance to right child.
+     */
     consteval void build_decode_tree() {
         auto tree = build_node_tree();
 
         for (size_t i = 0; i < tree_count(); i++) {
+            // Only store node value if it represents a data value
             decode_tree[i * 3] = tree[i].value <= 0xFF ? tree[i].value : 0;
 
             size_t j;
+            // Find the left child of this node
             for (j = i + 1; j < tree_count(); j++) {
                 if (tree[i].left == tree[j].value)
                     break;
             }
             decode_tree[i * 3 + 1] = j < tree_count() ? j - i : 0;
+            // Find the right child of this node
             for (j = i + 1; j < tree_count(); j++) {
                 if (tree[i].right == tree[j].value)
                     break;
             }
             decode_tree[i * 3 + 2] = j < tree_count() ? j - i : 0;
         }
+
         delete[] tree.data();
     }
 
     // Contains the compressed data.
-    unsigned char output[output_size().first] = {};
+    unsigned char compressed_data[compressed_size_info().first] = {};
     // Contains a 'tree' that can be used to decompress the data.
+    unsigned char decode_tree[3 * tree_count()] = {};
 
 public:
-    unsigned char decode_tree[3 * tree_count()] = {};
     // Utility for decoding compressed data.
     class decode_info {
     public:
@@ -208,9 +230,10 @@ public:
 
         // Checks if another byte is available
         operator bool() const {
-            const auto [size_bytes, last_bits_count] = m_data.output_size();
-            return m_pos < (size_bytes - 1) || m_bit > (8 - last_bits_count);
+            const auto [size_bytes, last_bits] = m_data.compressed_size_info();
+            return m_pos < (size_bytes - 1) || m_bit > (8 - last_bits);
         }
+
         // Gets the current byte
         int operator*() const { return m_current; }
         // Moves to the next byte
@@ -224,7 +247,7 @@ public:
         void get_next() {
             auto *node = m_data.decode_tree;
             do {
-                bool bit = m_data.output[m_pos] & (1 << (m_bit - 1));
+                bool bit = m_data.compressed_data[m_pos] & (1 << (m_bit - 1));
                 if (--m_bit == 0)
                     m_bit = 8, m_pos++;
                 node += 3 * node[bit ? 2 : 1];
@@ -246,7 +269,7 @@ public:
     }
 
     consteval static auto compressed_size() {
-        return output_size().first + output_size().second;
+        return sizeof(compressed_data);
     }
     consteval static auto uncompressed_size() {
         return data_length;
