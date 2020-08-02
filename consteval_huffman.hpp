@@ -269,7 +269,7 @@ public:
     }
 
     consteval static auto compressed_size() {
-        return sizeof(compressed_data);
+        return sizeof(compressed_data) + sizeof(decode_tree);
     }
     consteval static auto uncompressed_size() {
         return data_length;
