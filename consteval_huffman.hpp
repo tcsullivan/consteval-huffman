@@ -1,4 +1,3 @@
-
 /**
  * consteval_huffman.hpp - Provides compile-time text compression.
  * Written by Clyne Sullivan.
@@ -216,12 +215,18 @@ private:
         delete[] tree.data();
     }
 
-    // Contains the compressed data.
-    unsigned char compressed_data[compressed_size_info().first] = {};
-    // Contains a 'tree' that can be used to decompress the data.
-    unsigned char decode_tree[3 * tree_count()] = {};
-
 public:
+    consteval static auto compressed_size() {
+        return compressed_size_info().first + 3 * tree_count();
+    }
+    consteval static auto uncompressed_size() {
+        return data_length;
+    }
+    consteval static size_t bytes_saved() {
+        size_t diff = uncompressed_size() - compressed_size();
+        return diff > 0 ? diff : 0;
+    }
+
     // Utility for decoding compressed data.
     class decode_info {
     public:
@@ -230,8 +235,12 @@ public:
 
         // Checks if another byte is available
         operator bool() const {
-            const auto [size_bytes, last_bits] = m_data.compressed_size_info();
-            return m_pos < (size_bytes - 1) || m_bit > (8 - last_bits);
+            if constexpr (bytes_saved() > 0) {
+                const auto [size_bytes, last_bits] = m_data.compressed_size_info();
+                return m_pos < (size_bytes - 1) || m_bit > (8 - last_bits);
+            } else {
+                return m_pos < data_length;
+            }
         }
 
         // Gets the current byte
@@ -245,14 +254,18 @@ public:
     private:
         // Internal: moves to next byte
         void get_next() {
-            auto *node = m_data.decode_tree;
-            do {
-                bool bit = m_data.compressed_data[m_pos] & (1 << (m_bit - 1));
-                if (--m_bit == 0)
-                    m_bit = 8, m_pos++;
-                node += 3 * node[bit ? 2 : 1];
-            } while (node[1] != 0);
-            m_current = *node;
+            if constexpr (bytes_saved() > 0) {
+                auto *node = m_data.decode_tree;
+                do {
+                    bool bit = m_data.compressed_data[m_pos] & (1 << (m_bit - 1));
+                    if (--m_bit == 0)
+                        m_bit = 8, m_pos++;
+                    node += 3 * node[bit ? 2 : 1];
+                } while (node[1] != 0);
+                m_current = *node;
+            } else {
+                m_current = data[m_pos++];
+            }
         }
 
         const huffman_compress<data>& m_data;
@@ -264,25 +277,24 @@ public:
     };
 
     consteval huffman_compress() {
-        build_decode_tree();
-        compress();
-    }
-
-    consteval static auto compressed_size() {
-        return sizeof(compressed_data) + sizeof(decode_tree);
-    }
-    consteval static auto uncompressed_size() {
-        return data_length;
-    }
-    consteval static size_t bytes_saved() {
-        return uncompressed_size() - compressed_size();
+        if constexpr (bytes_saved() > 0) {
+            build_decode_tree();
+            compress();
+        } else {
+            std::copy(data, data + data_length, compressed_data);
+        }
     }
 
     // Creates a decoder object for iteratively decompressing the data.
     auto get_decoder() const {
         return decode_info(*this);
     }
+
+private:
+    // Contains the compressed data.
+    unsigned char compressed_data[bytes_saved() > 0 ? compressed_size_info().first : data_length] = {};
+    // Contains a 'tree' that can be used to decompress the data.
+    unsigned char decode_tree[3 * tree_count()] = {};
 };
 
 #endif // TCSULLIVAN_CONSTEVAL_HUFFMAN_HPP_
-
