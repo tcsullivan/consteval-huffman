@@ -17,10 +17,10 @@
  * @tparam data The string of data to be compressed.
  * @tparam data_length The size in bytes of the data, defaults to using strlen().
  */
-template<const char *data, std::size_t data_length = std::char_traits<char>::length(data)>
+template<const char *data, auto data_length = std::char_traits<char>::length(data)>
 class huffman_compress
 {
-    using size_t = unsigned long int;
+    using size_t = long int;
 
     // Jump to the bottom of this header for the public-facing features of this
     // class.
@@ -274,7 +274,7 @@ public:
     consteval static auto uncompressed_size() {
         return data_length;
     }
-    consteval static auto bytes_saved() {
+    consteval static size_t bytes_saved() {
         return uncompressed_size() - compressed_size();
     }
 
