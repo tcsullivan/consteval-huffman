@@ -11,19 +11,18 @@
 #include <span>
 
 /**
- * Compresses the given character string using Huffman coding, providing a
+ * Compresses the given data string using Huffman coding, providing a
  * minimal run-time interface for decompressing the data.
  * @tparam data The string of data to be compressed.
- * @tparam data_length The size in bytes of the data, defaults to using strlen().
+ * @tparam data_length The size in bytes of the data, defaulting to strlen() behavior.
  */
 template<const char *data, auto data_length = std::char_traits<char>::length(data)>
+    requires(data_length > 0)
 class huffman_compress
 {
     using size_t = long int;
 
-    // Jump to the bottom of this header for the public-facing features of this
-    // class.
-    // The internals needed to be defined before they were used.
+    // Note: class internals need to be defined before the public interface.
 private:
     // Node structure used to build a tree for calculating Huffman codes.
     struct node {
@@ -56,6 +55,8 @@ private:
         auto first_valid_node = std::find_if(list.begin(), list.end(),
             [](const auto& n) { return n.freq != 0; });
         auto fit_size = std::distance(first_valid_node, list.end());
+        if (fit_size < 2)
+            fit_size = 2;
         auto fit_list = std::span(new node[fit_size] {}, fit_size);
         std::copy(first_valid_node, list.end(), fit_list.begin());
         delete[] list.data();
@@ -119,7 +120,9 @@ private:
         for (auto iter = tree.begin(); ++iter != tree.end();) {
             if (iter->parent == -1) {
                 auto parent = std::find_if(tree.begin(), iter,
-                    [&iter](const auto& n) { return n.left == iter->value || n.right == iter->value; });
+                    [&iter](const auto& n) {
+                        return n.left == iter->value || n.right == iter->value;
+                    });
                 if (parent != iter)
                     iter->parent = std::distance(tree.begin(), parent);
             }
@@ -230,34 +233,47 @@ public:
     // Utility for decoding compressed data.
     class decode_info {
     public:
-        decode_info(const huffman_compress<data, data_length>& comp_data) :
-            m_data(comp_data) { get_next(); }
+        using difference_type = std::ptrdiff_t;
+        using value_type = int;
 
-        // Checks if another byte is available
-        operator bool() const {
+        decode_info(const huffman_compress<data, data_length>* comp_data) :
+            m_data(comp_data) { get_next(); }
+        decode_info() = default;
+
+        decode_info& end() {
             if constexpr (bytes_saved() > 0) {
-                const auto [size_bytes, last_bits] = m_data.compressed_size_info();
-                return m_pos < (size_bytes - 1) || m_bit > (8 - last_bits);
+                const auto [size_bytes, last_bits] = m_data->compressed_size_info();
+                m_pos = size_bytes - 1;
+                m_bit = 8 - last_bits;
             } else {
-                return m_pos < data_length;
+                m_pos = data_length + 1;
             }
+
+            return *this;
         }
 
-        // Gets the current byte
-        int operator*() const { return m_current; }
-        // Moves to the next byte
-        int operator++() {
-            get_next();
+        bool operator==(const decode_info& other) const {
+            return m_data == other.m_data && m_bit == other.m_bit && m_pos == other.m_pos;
+        }
+        auto operator*() const {
             return m_current;
+        }
+        decode_info& operator++() {
+            get_next();
+            return *this;
+        }
+        decode_info operator++(int) {
+            auto old = *this;
+            get_next();
+            return old;
         }
 
     private:
-        // Internal: moves to next byte
         void get_next() {
             if constexpr (bytes_saved() > 0) {
-                auto *node = m_data.decode_tree;
+                auto *node = m_data->decode_tree;
                 do {
-                    bool bit = m_data.compressed_data[m_pos] & (1 << (m_bit - 1));
+                    bool bit = m_data->compressed_data[m_pos] & (1 << (m_bit - 1));
                     if (--m_bit == 0)
                         m_bit = 8, m_pos++;
                     node += 3 * node[bit ? 2 : 1];
@@ -268,7 +284,7 @@ public:
             }
         }
 
-        const huffman_compress<data>& m_data;
+        const huffman_compress<data> *m_data = nullptr;
         size_t m_pos = 0;
         unsigned char m_bit = 8;
         int m_current = -1;
@@ -276,7 +292,19 @@ public:
         friend class huffman_compress;
     };
 
-    consteval huffman_compress() {
+    auto begin() const {
+        return decode_info(this);
+    }
+    auto end() const {
+        return decode_info(this).end();
+    }
+    auto cbegin() const { begin(); }
+    auto cend() const { end(); }
+
+    // Stick the requires clause here just so it's run
+    consteval huffman_compress()
+        requires (std::forward_iterator<decode_info>)
+    {
         if constexpr (bytes_saved() > 0) {
             build_decode_tree();
             compress();
@@ -285,16 +313,12 @@ public:
         }
     }
 
-    // Creates a decoder object for iteratively decompressing the data.
-    auto get_decoder() const {
-        return decode_info(*this);
-    }
-
 private:
     // Contains the compressed data.
-    unsigned char compressed_data[bytes_saved() > 0 ? compressed_size_info().first : data_length] = {};
+    unsigned char compressed_data[bytes_saved() > 0 ? compressed_size_info().first : data_length] = {0};
     // Contains a 'tree' that can be used to decompress the data.
-    unsigned char decode_tree[3 * tree_count()] = {};
+    unsigned char decode_tree[3 * tree_count()] = {0};
 };
 
 #endif // TCSULLIVAN_CONSTEVAL_HUFFMAN_HPP_
+
