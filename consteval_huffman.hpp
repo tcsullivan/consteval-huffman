@@ -22,6 +22,7 @@ template<const char *data, auto data_length = std::char_traits<char>::length(dat
 class huffman_compress
 {
     using size_t = long int;
+    using usize_t = decltype(data_length);
 
     // Note: class internals need to be defined before the public interface.
 private:
@@ -46,7 +47,7 @@ private:
         auto list = std::span(new node[256] {}, 256);
         for (int i = 0; i < 256; i++)
             list[i].value = i;
-        for (size_t i = 0; i < data_length; i++)
+        for (usize_t i = 0; i < data_length; i++)
             list[data[i]].freq++;
 
         std::sort(list.begin(), list.end(),
@@ -141,7 +142,7 @@ private:
         auto tree = build_node_tree();
         size_t bytes = 1, bits = 0;
 
-        for (size_t i = 0; i < data_length; i++) {
+        for (usize_t i = 0; i < data_length; i++) {
             auto leaf = std::find_if(tree.begin(), tree.end(),
                 [c = data[i]](const auto& n) { return n.value == c; });
 
@@ -197,11 +198,11 @@ private:
     consteval void build_decode_tree() {
         auto tree = build_node_tree();
 
-        for (size_t i = 0; i < tree_count(); i++) {
+        for (usize_t i = 0; i < tree_count(); i++) {
             // Only store node value if it represents a data value
             decode_tree[i * 3] = tree[i].value <= 0xFF ? tree[i].value : 0;
 
-            size_t j;
+            usize_t j;
             // Find the left child of this node
             for (j = i + 1; j < tree_count(); j++) {
                 if (tree[i].left == tree[j].value)
@@ -327,4 +328,3 @@ private:
 };
 
 #endif // TCSULLIVAN_CONSTEVAL_HUFFMAN_HPP_
-
