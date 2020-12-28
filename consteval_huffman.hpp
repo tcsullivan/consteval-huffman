@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <span>
+#include <string>
 
 /**
  * Compresses the given data string using Huffman coding, providing a
@@ -244,7 +245,7 @@ public:
             if constexpr (bytes_saved() > 0) {
                 const auto [size_bytes, last_bits] = m_data->compressed_size_info();
                 m_pos = size_bytes - 1;
-                m_bit = 8 - last_bits;
+                m_bit = 1 << (7 - last_bits);
             } else {
                 m_pos = data_length + 1;
             }
@@ -253,7 +254,7 @@ public:
         }
 
         bool operator==(const decode_info& other) const {
-            return m_data == other.m_data && m_bit == other.m_bit && m_pos == other.m_pos;
+            return m_bit == other.m_bit && m_pos == other.m_pos;
         }
         auto operator*() const {
             return m_current;
@@ -272,12 +273,17 @@ public:
         void get_next() {
             if constexpr (bytes_saved() > 0) {
                 auto *node = m_data->decode_tree;
+                auto pos = m_pos;
+                auto bit = m_bit;
                 do {
-                    bool bit = m_data->compressed_data[m_pos] & (1 << (m_bit - 1));
-                    if (--m_bit == 0)
-                        m_bit = 8, m_pos++;
-                    node += 3 * node[bit ? 2 : 1];
+                    auto idx = (m_data->compressed_data[pos] & bit) ? 2u : 1u;
+                    node += node[idx] * 3u;
+                    bit >>= 1;
+                    if (!bit)
+                        bit = 0x80, pos++;
                 } while (node[1] != 0);
+                m_pos = pos;
+                m_bit = bit;
                 m_current = *node;
             } else {
                 m_current = data[m_pos++];
@@ -286,7 +292,7 @@ public:
 
         const huffman_compress<data> *m_data = nullptr;
         size_t m_pos = 0;
-        unsigned char m_bit = 8;
+        unsigned char m_bit = 0x80;
         int m_current = -1;
 
         friend class huffman_compress;
