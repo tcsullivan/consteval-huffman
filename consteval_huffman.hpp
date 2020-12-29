@@ -12,6 +12,9 @@
 
 namespace detail
 {
+    // Provides a string container for the huffman compressor.
+    // Using this allows for automatic string data length measurement, as
+    // well as implementation of the _huffman suffix.
     template<unsigned long int N>
     struct huffman_string_container {
         char data[N];
@@ -32,14 +35,18 @@ namespace detail
  * minimal run-time interface for decompressing the data.
  * @tparam data The string of data to be compressed.
  */
-template<detail::huffman_string_container data>
-    requires(data.size() > 0)
+template<auto data>
+    requires(
+        std::same_as<decltype(data),
+            const detail::huffman_string_container<data.size()>> &&
+        data.size() > 0)
 class huffman_compressor
 {
     using size_t = long int;
     using usize_t = unsigned long int;
 
     // Note: class internals need to be defined before the public interface.
+    // See the bottom of the class definition for usage.
 private:
     // Node structure used to build a tree for calculating Huffman codes.
     struct node {
@@ -316,6 +323,16 @@ public:
         friend class huffman_compressor;
     };
 
+    // Stick the forward_iterator check here just so it's run
+    consteval huffman_compressor() noexcept
+        requires (std::forward_iterator<decode_info>)
+    {
+        if constexpr (bytes_saved() > 0) {
+            build_decode_tree();
+            compress();
+        }
+    }
+
     auto begin() const noexcept {
         return decode_info(this);
     }
@@ -325,14 +342,11 @@ public:
     auto cbegin() const noexcept { begin(); }
     auto cend() const noexcept { end(); }
 
-    // Stick the requires clause here just so it's run
-    consteval huffman_compressor() noexcept
-        requires (std::forward_iterator<decode_info>)
-    {
-        if constexpr (bytes_saved() > 0) {
-            build_decode_tree();
-            compress();
-        }
+    auto size() const noexcept {
+        if constexpr (bytes_saved() > 0)
+            return compressed_size();
+        else
+            return uncompressed_size();
     }
 
 private:
