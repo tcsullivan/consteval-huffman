@@ -257,18 +257,18 @@ public:
     }
 
     // Utility for decoding compressed data.
-    class decode_info {
+    class decoder {
     public:
         using difference_type = std::ptrdiff_t;
         using value_type = int;
 
-        decode_info(const unsigned char *comp_data) noexcept
+        decoder(const unsigned char *comp_data) noexcept
             : m_data(comp_data),
               m_table(comp_data + compressed_size_info().first) { get_next(); }
-        decode_info() = default;
+        decoder() = default;
 
-        constexpr static decode_info end(const unsigned char *comp_data) noexcept {
-            decode_info ender;
+        constexpr static decoder end(const unsigned char *comp_data) noexcept {
+            decoder ender;
             ender.m_data = comp_data;
             if constexpr (bytes_saved() > 0) {
                 const auto [size_bytes, last_bits] = compressed_size_info();
@@ -281,17 +281,17 @@ public:
             return ender;
         }
 
-        bool operator==(const decode_info& other) const noexcept {
+        bool operator==(const decoder& other) const noexcept {
             return m_data == other.m_data && m_bit == other.m_bit;
         }
         auto operator*() const noexcept {
             return m_current;
         }
-        decode_info& operator++() noexcept {
+        decoder& operator++() noexcept {
             get_next();
             return *this;
         }
-        decode_info operator++(int) noexcept {
+        decoder operator++(int) noexcept {
             auto old = *this;
             get_next();
             return old;
@@ -328,21 +328,22 @@ public:
 
     // Stick the forward_iterator check here just so it's run
     consteval huffman_compressor() noexcept
-        requires (std::forward_iterator<decode_info>)
+        requires (std::forward_iterator<decoder>)
     {
         if constexpr (bytes_saved() > 0) {
             build_decode_tree();
             compress();
         } else {
-            std::copy(raw_data.data, raw_data.data + raw_data.size(), compressed_data);
+            std::copy(raw_data.data, raw_data.data + raw_data.size(),
+                compressed_data);
         }
     }
 
     auto begin() const noexcept {
-        return decode_info(compressed_data);
+        return decoder(compressed_data);
     }
     auto end() const noexcept {
-        return decode_info::end(compressed_data);
+        return decoder::end(compressed_data);
     }
     auto cbegin() const noexcept { begin(); }
     auto cend() const noexcept { end(); }
