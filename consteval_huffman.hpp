@@ -9,20 +9,35 @@
 
 #include <algorithm>
 #include <span>
-#include <string>
+
+namespace detail
+{
+    template<unsigned long int N>
+    struct huffman_string_container {
+        char data[N];
+        consteval huffman_string_container(const char (&s)[N]) noexcept {
+            std::copy(s, s + N, data);
+        }
+        consteval operator const char *() const noexcept {
+            return data;
+        }
+        consteval auto size() const noexcept {
+            return N;
+        }
+    };
+}
 
 /**
  * Compresses the given data string using Huffman coding, providing a
  * minimal run-time interface for decompressing the data.
  * @tparam data The string of data to be compressed.
- * @tparam data_length The size in bytes of the data, defaulting to strlen() behavior.
  */
-template<const char *data, auto data_length = std::char_traits<char>::length(data)>
-    requires(data_length > 0)
-class huffman_compress
+template<detail::huffman_string_container data>
+    requires(data.size() > 0)
+class huffman_compressor
 {
     using size_t = long int;
-    using usize_t = decltype(data_length);
+    using usize_t = unsigned long int;
 
     // Note: class internals need to be defined before the public interface.
 private:
@@ -42,12 +57,12 @@ private:
      * This list is sorted by increasing frequency.
      * @return Compile-time allocated array of nodes
      */
-    consteval static auto build_node_list() {
+    consteval static auto build_node_list() noexcept {
         // Build a list for counting every occuring value
         auto list = std::span(new node[256] {}, 256);
         for (int i = 0; i < 256; i++)
             list[i].value = i;
-        for (usize_t i = 0; i < data_length; i++)
+        for (usize_t i = 0; i < data.size(); i++)
             list[data[i]].freq++;
 
         std::sort(list.begin(), list.end(),
@@ -68,7 +83,7 @@ private:
     /**
      * Returns the count of how many nodes are in the node tree.
      */
-    consteval static auto tree_count() {
+    consteval static auto tree_count() noexcept {
         auto list = build_node_list();
         auto count = list.size() * 2 - 1;
         delete[] list.data();
@@ -80,7 +95,7 @@ private:
      * Huffman codes.
      * @return Compile-time allocated tree of nodes, root node at index zero.
      */
-    consteval static auto build_node_tree() {
+    consteval static auto build_node_tree() noexcept {
         auto list = build_node_list();
         auto tree = std::span(new node[tree_count()] {}, tree_count());
         
@@ -138,11 +153,11 @@ private:
      * Determines the size of the compressed data.
      * @return A pair of total bytes used, and bits used in last byte.
      */
-    consteval static auto compressed_size_info() {
+    consteval static auto compressed_size_info() noexcept {
         auto tree = build_node_tree();
         size_t bytes = 1, bits = 0;
 
-        for (usize_t i = 0; i < data_length; i++) {
+        for (usize_t i = 0; i < data.size(); i++) {
             auto leaf = std::find_if(tree.begin(), tree.end(),
                 [c = data[i]](const auto& n) { return n.value == c; });
 
@@ -160,8 +175,7 @@ private:
     /**
      * Compresses the input data, storing the result in the object instance.
      */
-    consteval void compress()
-    {
+    consteval void compress() noexcept {
         auto tree = build_node_tree();
 
         // Set up byte and bit count (note, we're compressing the data backwards)
@@ -173,7 +187,7 @@ private:
 
         // Compress data backwards, because we obtain the Huffman codes backwards
         // as we traverse towards the parent node.
-        for (auto i = data_length; i > 0; i--) {
+        for (auto i = data.size(); i > 0; i--) {
             auto leaf = std::find_if(tree.begin(), tree.end(),
                 [c = data[i - 1]](auto& n) { return n.value == c; });
 
@@ -195,7 +209,7 @@ private:
      * Format: three bytes per node.
      *     1. Node value, 2. Distance to left child, 3. Distance to right child.
      */
-    consteval void build_decode_tree() {
+    consteval void build_decode_tree() noexcept {
         auto tree = build_node_tree();
 
         for (usize_t i = 0; i < tree_count(); i++) {
@@ -221,13 +235,13 @@ private:
     }
 
 public:
-    consteval static auto compressed_size() {
+    consteval static auto compressed_size() noexcept {
         return compressed_size_info().first + 3 * tree_count();
     }
-    consteval static auto uncompressed_size() {
-        return data_length;
+    consteval static auto uncompressed_size() noexcept {
+        return data.size();
     }
-    consteval static size_t bytes_saved() {
+    consteval static size_t bytes_saved() noexcept {
         size_t diff = uncompressed_size() - compressed_size();
         return diff > 0 ? diff : 0;
     }
@@ -238,40 +252,43 @@ public:
         using difference_type = std::ptrdiff_t;
         using value_type = int;
 
-        decode_info(const huffman_compress<data, data_length>* comp_data) :
-            m_data(comp_data) { get_next(); }
+        decode_info(const huffman_compressor<data>* comp_data) noexcept
+            : m_data(comp_data) { get_next(); }
         decode_info() = default;
 
-        decode_info& end() {
+        consteval static decode_info end() noexcept {
+            decode_info ender;
             if constexpr (bytes_saved() > 0) {
-                const auto [size_bytes, last_bits] = m_data->compressed_size_info();
-                m_pos = size_bytes - 1;
-                m_bit = 1 << (7 - last_bits);
+                const auto [size_bytes, last_bits] = compressed_size_info();
+                ender.m_pos = size_bytes - 1;
+                ender.m_bit = 1 << (7 - last_bits);
             } else {
-                m_pos = data_length + 1;
+                ender.m_pos = data.size() + 1;
             }
 
-            return *this;
+            return ender;
         }
 
-        bool operator==(const decode_info& other) const {
+        bool operator==(const decode_info& other) const noexcept {
             return m_bit == other.m_bit && m_pos == other.m_pos;
         }
-        auto operator*() const {
+        auto operator*() const noexcept {
             return m_current;
         }
-        decode_info& operator++() {
+        decode_info& operator++() noexcept {
             get_next();
             return *this;
         }
-        decode_info operator++(int) {
+        decode_info operator++(int) noexcept {
             auto old = *this;
             get_next();
             return old;
         }
 
     private:
-        void get_next() {
+        void get_next() noexcept {
+            if (*this == end())
+                return;
             if constexpr (bytes_saved() > 0) {
                 auto *node = m_data->decode_tree;
                 auto pos = m_pos;
@@ -291,40 +308,44 @@ public:
             }
         }
 
-        const huffman_compress<data> *m_data = nullptr;
+        const huffman_compressor<data> *m_data = nullptr;
         size_t m_pos = 0;
         unsigned char m_bit = 0x80;
         int m_current = -1;
 
-        friend class huffman_compress;
+        friend class huffman_compressor;
     };
 
-    auto begin() const {
+    auto begin() const noexcept {
         return decode_info(this);
     }
-    auto end() const {
-        return decode_info(this).end();
+    auto end() const noexcept {
+        return decode_info::end();
     }
-    auto cbegin() const { begin(); }
-    auto cend() const { end(); }
+    auto cbegin() const noexcept { begin(); }
+    auto cend() const noexcept { end(); }
 
     // Stick the requires clause here just so it's run
-    consteval huffman_compress()
+    consteval huffman_compressor() noexcept
         requires (std::forward_iterator<decode_info>)
     {
         if constexpr (bytes_saved() > 0) {
             build_decode_tree();
             compress();
-        } else {
-            std::copy(data, data + data_length, compressed_data);
         }
     }
 
 private:
     // Contains the compressed data.
-    unsigned char compressed_data[bytes_saved() > 0 ? compressed_size_info().first : data_length] = {0};
+    unsigned char compressed_data[bytes_saved() > 0 ? compressed_size_info().first : 1] = {0};
     // Contains a 'tree' that can be used to decompress the data.
-    unsigned char decode_tree[3 * tree_count()] = {0};
+    unsigned char decode_tree[bytes_saved() > 0 ? 3 * tree_count() : 1] = {0};
 };
+
+template <detail::huffman_string_container hsc>
+constexpr auto operator ""_huffman()
+{
+    return huffman_compressor<hsc>();
+}
 
 #endif // TCSULLIVAN_CONSTEVAL_HUFFMAN_HPP_
