@@ -8,25 +8,20 @@ Compression is achieved using [Huffman coding](https://en.wikipedia.org/wiki/Huf
 
 **1. Text configurations (e.g. JSON)**
 
-A ~3.5kB string of JSON can be compressed down ~2.5kB ([see it on Godbolt](https://godbolt.org/z/1MzG1v)).
+A ~3.5kB string of JSON can be compressed down ~2.5kB ([see it on Godbolt](https://godbolt.org/z/rqWf4v)).
 
 **2. Scripts (e.g. Lisp)**
 
-A ~40 line comment-including sample of Lisp can be reduced from 1,662 bytes to 1,244 (418 bytes saved) ([Godbolt](https://godbolt.org/z/jcnKza)).
+A ~40 line comment-including sample of Lisp can be reduced from 1,662 bytes to 1,244 (418 bytes saved) ([Godbolt](https://godbolt.org/z/Kbenbh)).
 
 ## How to Use
 
 ```cpp
 #include "consteval_huffman.hpp"
 
-constexpr static const char some_data_raw[] = /* insert text here */;
-
-// Creates an object with the compressed data
-// If data is not smaller after compression, huffman_compress will keep the data uncompressed
-constinit static const auto some_data = huffman_compress<some_data_raw>();
-
-// Or, with a set data length:
-// ... some_data = huffman_compress<some_data_raw, 1500>();
+// Using the _huffman suffix creates an object with the compressed data.
+// If data is not smaller after compression, the object will keep the data uncompressed.
+constinit auto some_data = "This is my string of data"_huffman;
 
 int main()
 {
