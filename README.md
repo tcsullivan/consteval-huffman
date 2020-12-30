@@ -10,11 +10,11 @@ A C++20 compliant compiler. `consteval-huffman` is confirmed to work on gcc 10.1
 
 ## Use cases
 
-**1. Text configurations (e.g. JSON)**
+**1. Text configurations**
 
 A ~3.5kB string of JSON can be compressed down ~2.5kB ([see it on Godbolt](https://godbolt.org/z/rqWf4v)).
 
-**2. Scripts (e.g. Lisp)**
+**2. Scripts**
 
 A ~40 line comment-including sample of Lisp can be reduced from 1,662 bytes to 1,251 (412 bytes saved) ([Godbolt](https://godbolt.org/z/Kbenbh)).
 
