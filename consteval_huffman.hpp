@@ -345,8 +345,8 @@ public:
     auto end() const noexcept {
         return decoder::end(compressed_data);
     }
-    auto cbegin() const noexcept { begin(); }
-    auto cend() const noexcept { end(); }
+    auto cbegin() const noexcept { return begin(); }
+    auto cend() const noexcept { return end(); }
 
     // For accessing the compressed data
     auto data() const noexcept {
