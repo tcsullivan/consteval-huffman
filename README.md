@@ -26,7 +26,7 @@ A string of numbers 1 to 100 separated with spaces can be compressed to 64% of i
 
 ```cpp
 // 1. Include
-#include "consteval_huffman.hpp"
+#include <consteval_huffman/consteval_huffman.hpp>
 
 // 2. Use _huffman suffix (data now stores compressed string)
 auto data = "This is my string of data"_huffman; // "\0\x1 Non-text data works too!"
