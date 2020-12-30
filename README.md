@@ -25,13 +25,13 @@ A string of numbers 1 to 100 separated with spaces can be compressed to 64% of i
 ## How to Use
 
 ```cpp
-// 1.
+// 1. Include
 #include "consteval_huffman.hpp"
 
-// 2.
+// 2. Use _huffman suffix (data now stores compressed string)
 auto data = "This is my string of data"_huffman; // "\0\x1 Non-text data works too!"
 
-// 3.
+// 3. Use iterator to decompress at run-time
 for (char c : data)
     std::cout << c;
 ```
