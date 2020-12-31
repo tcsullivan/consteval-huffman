@@ -275,7 +275,7 @@ public:
                 ender.m_data += size_bytes - 1;
                 ender.m_bit = 1 << (7 - last_bits);
             } else {
-                ender.m_data += raw_data.size() + 1;
+                ender.m_data += raw_data.size();
             }
 
             return ender;
