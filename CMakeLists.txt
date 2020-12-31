@@ -28,7 +28,6 @@ target_compile_features(consteval_huffman INTERFACE cxx_std_20)
 
 # ---- Install ----
 
-include(CPack)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
@@ -61,3 +60,7 @@ install(EXPORT consteval_huffmanTargets
         NAMESPACE tcsullivan::
         DESTINATION "${consteval_huffman_install_cmakedir}"
         COMPONENT consteval_huffman_Package)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  include(CPack)
+endif()
