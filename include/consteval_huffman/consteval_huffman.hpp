@@ -8,6 +8,7 @@
 #define TCSULLIVAN_CONSTEVAL_HUFFMAN_HPP_
 
 #include <algorithm>
+#include <array>
 #include <concepts>
 #include <span>
 #include <type_traits>
@@ -66,38 +67,52 @@ private:
      * This list is sorted by increasing frequency.
      * @return Compile-time allocated array of nodes
      */
-    consteval static auto build_node_list() noexcept {
-        // Build a list for counting every occuring value
-        auto list = std::span(new node[256] {}, 256);
-        for (int i = 0; i < 256; i++)
-            list[i].value = i;
-        for (usize_t i = 0; i < raw_data.size(); i++)
-            list[raw_data[i]].freq++;
+    struct node_list_t {
+        node list[256] = {};
+        usize_t fit_size = 0;
 
-        std::sort(list.begin(), list.end(),
-            [](const auto& a, const auto& b) { return a.freq < b.freq; });
+        consteval node_list_t() noexcept {
+            // Build a list for counting every occuring value
+            for (int i = 0; i < 256; i++)
+                list[i].value = i;
+            for (usize_t i = 0; i < raw_data.size(); i++)
+                list[raw_data[i]].freq++;
 
-        // Filter out the non-occuring values, and build a compact list to return
-        auto first_valid_node = std::find_if(list.begin(), list.end(),
-            [](const auto& n) { return n.freq != 0; });
-        auto fit_size = std::distance(first_valid_node, list.end());
-        if (fit_size < 2)
-            fit_size = 2;
-        auto fit_list = std::span(new node[fit_size] {}, fit_size);
-        std::copy(first_valid_node, list.end(), fit_list.begin());
-        delete[] list.data();
-        return fit_list;
-    }
+            std::sort(list, list + 256,
+                [](const auto& a, const auto& b) { return a.freq < b.freq; });
+
+            // Filter out the non-occuring values, and build a compact list to return
+            auto first_valid_node = std::find_if(list, list + 256,
+                [](const auto& n) { return n.freq != 0; });
+            fit_size = std::distance(first_valid_node, list + 256);
+            if (fit_size < 2)
+                fit_size = 2;
+            //auto fit_list = std::span(new node[fit_size] {}, fit_size);
+            std::copy(first_valid_node, list + 256, list);
+        }
+        consteval node_list_t(const node_list_t& other) noexcept {
+            fit_size = other.fit_size;
+            for (int i = 0; i < size(); i++)
+                list[i] = other.list[i];
+        }
+
+        consteval auto size() const noexcept { return fit_size; }
+        consteval auto data() noexcept { return list; }
+        consteval auto begin() noexcept { return list; }
+        consteval auto end() noexcept { return list + fit_size; }
+        consteval auto& operator[](usize_t i) noexcept { return list[i]; }
+        consteval auto& front() noexcept { return *list; }
+    };
+    constexpr static auto node_list = node_list_t();
 
     /**
      * Returns the count of how many nodes are in the node tree.
      */
-    consteval static auto tree_count() noexcept {
-        auto list = build_node_list();
-        auto count = list.size() * 2 - 1;
-        delete[] list.data();
+    consteval static auto get_tree_count() noexcept {
+        auto count = node_list.size() * 2 - 1;
         return count;
     }
+    constexpr static auto tree_count = get_tree_count();
 
     /**
      * Builds a tree out of the node list, allowing for the calculation of
@@ -105,8 +120,8 @@ private:
      * @return Compile-time allocated tree of nodes, root node at index zero.
      */
     consteval static auto build_node_tree() noexcept {
-        auto list = build_node_list();
-        auto tree = std::span(new node[tree_count()] {}, tree_count());
+        auto list = node_list_t(node_list);
+        auto tree = std::span(new node[tree_count] {}, tree_count);
         
         auto list_end = list.end(); // Track end of list as it shrinks
         auto tree_begin = tree.end(); // Build tree from bottom
@@ -154,7 +169,6 @@ private:
             }
         }
 
-        delete[] list.data();
         return tree;
     }
 
@@ -162,7 +176,7 @@ private:
      * Determines the size of the compressed data.
      * @return A pair of total bytes used, and bits used in last byte.
      */
-    consteval static auto compressed_size_info() noexcept {
+    consteval static auto get_compressed_size_info() noexcept {
         auto tree = build_node_tree();
         size_t bytes = 1, bits = 0;
 
@@ -180,6 +194,7 @@ private:
         delete[] tree.data();
         return std::make_pair(bytes, bits);
     }
+    constexpr static auto compressed_size_info = get_compressed_size_info();
 
     /**
      * Compresses the input data, storing the result in the object instance.
@@ -188,7 +203,7 @@ private:
         auto tree = build_node_tree();
 
         // Set up byte and bit count (note, we're compressing the data backwards)
-        auto [bytes, bits] = compressed_size_info();
+        auto [bytes, bits] = compressed_size_info;
         if (bits > 0)
             bits = 8 - bits;
         else
@@ -220,25 +235,25 @@ private:
      */
     consteval void build_decode_tree() noexcept {
         auto tree = build_node_tree();
-        auto decode_tree = compressed_data + compressed_size_info().first;
+        auto decode_tree = compressed_data + compressed_size_info.first;
 
-        for (usize_t i = 0; i < tree_count(); i++) {
+        for (usize_t i = 0; i < tree_count; i++) {
             // Only store node value if it represents a data value
             decode_tree[i * 3] = tree[i].value <= 0xFF ? tree[i].value : 0;
 
             usize_t j;
             // Find the left child of this node
-            for (j = i + 1; j < tree_count(); j++) {
+            for (j = i + 1; j < tree_count; j++) {
                 if (tree[i].left == tree[j].value)
                     break;
             }
-            decode_tree[i * 3 + 1] = j < tree_count() ? j - i : 0;
+            decode_tree[i * 3 + 1] = j < tree_count ? j - i : 0;
             // Find the right child of this node
-            for (j = i + 1; j < tree_count(); j++) {
+            for (j = i + 1; j < tree_count; j++) {
                 if (tree[i].right == tree[j].value)
                     break;
             }
-            decode_tree[i * 3 + 2] = j < tree_count() ? j - i : 0;
+            decode_tree[i * 3 + 2] = j < tree_count ? j - i : 0;
         }
 
         delete[] tree.data();
@@ -246,7 +261,7 @@ private:
 
 public:
     consteval static auto compressed_size() noexcept {
-        return compressed_size_info().first + 3 * tree_count();
+        return compressed_size_info.first + 3 * tree_count;
     }
     consteval static auto uncompressed_size() noexcept {
         return raw_data.size();
@@ -264,14 +279,14 @@ public:
 
         decoder(const unsigned char *comp_data) noexcept
             : m_data(comp_data),
-              m_table(comp_data + compressed_size_info().first) { get_next(); }
+              m_table(comp_data + compressed_size_info.first) { get_next(); }
         decoder() = default;
 
         constexpr static decoder end(const unsigned char *comp_data) noexcept {
             decoder ender;
             ender.m_data = comp_data;
             if constexpr (bytes_saved() > 0) {
-                const auto [size_bytes, last_bits] = compressed_size_info();
+                const auto [size_bytes, last_bits] = compressed_size_info;
                 ender.m_data += size_bytes - 1;
                 ender.m_bit = 1 << (7 - last_bits);
             } else {
@@ -366,7 +381,7 @@ public:
 private:
     // Contains the compressed data, followed by the decoding tree.
     unsigned char compressed_data[
-        bytes_saved() > 0 ? compressed_size_info().first + 3 * tree_count()
+        bytes_saved() > 0 ? compressed_size_info.first + 3 * tree_count
                           : raw_data.size()] = {0};
 };
 
@@ -377,3 +392,4 @@ constexpr auto operator ""_huffman()
 }
 
 #endif // TCSULLIVAN_CONSTEVAL_HUFFMAN_HPP_
+
