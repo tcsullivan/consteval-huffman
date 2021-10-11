@@ -17,13 +17,15 @@ namespace detail
     // Provides a string container for the huffman compressor.
     // Using this allows for automatic string data length measurement, as
     // well as implementation of the _huffman suffix.
-    template<unsigned long int N>
+    template<typename T, unsigned long int N>
+        requires(std::same_as<std::remove_cvref_t<T>, char> ||
+                 std::same_as<std::remove_cvref_t<T>, unsigned char>)
     struct huffman_string_container {
-        char data[N];
-        consteval huffman_string_container(const char (&s)[N]) noexcept {
+        T data[N];
+        consteval huffman_string_container(const T (&s)[N]) noexcept {
             std::copy(s, s + N, data);
         }
-        consteval operator const char *() const noexcept {
+        consteval operator const T *() const noexcept {
             return data;
         }
         consteval auto size() const noexcept {
@@ -35,12 +37,13 @@ namespace detail
 /**
  * Compresses the given data string using Huffman coding, providing a
  * minimal run-time interface for decompressing the data.
- * @tparam data The string of data to be compressed.
+ * @tparam raw_data The string of data to be compressed.
  */
 template<auto raw_data>
     requires(
         std::same_as<std::remove_cvref_t<decltype(raw_data)>,
-            detail::huffman_string_container<raw_data.size()>> &&
+            detail::huffman_string_container<std::remove_cvref_t<decltype(raw_data.data[0])>,
+                raw_data.size()>> &&
         raw_data.size() > 0)
 class huffman_compressor
 {
@@ -167,8 +170,9 @@ private:
         size_t bytes = 1, bits = 0;
 
         for (usize_t i = 0; i < raw_data.size(); i++) {
+            auto c = static_cast<int>(raw_data[i]);
             auto leaf = std::find_if(tree.begin(), tree.end(),
-                [c = raw_data[i]](const auto& n) { return n.value == c; });
+                [c](const auto& n) { return n.value == c; });
 
             while (leaf->parent != -1) {
                 if (++bits == 8)
@@ -197,8 +201,9 @@ private:
         // Compress data backwards, because we obtain the Huffman codes backwards
         // as we traverse towards the parent node.
         for (auto i = raw_data.size(); i > 0; i--) {
+            auto c = static_cast<int>(raw_data[i - 1]);
             auto leaf = std::find_if(tree.begin(), tree.end(),
-                [c = raw_data[i - 1]](auto& n) { return n.value == c; });
+                [c](auto& n) { return n.value == c; });
 
             while (leaf->parent != -1) {
                 auto parent = tree.begin() + leaf->parent;
@@ -282,7 +287,9 @@ public:
         }
 
         bool operator==(const decoder& other) const noexcept {
-            return m_data == other.m_data && m_bit == other.m_bit;
+            return m_data == other.m_data &&
+                m_bit == other.m_bit &&
+                m_current == other.m_current;
         }
         auto operator*() const noexcept {
             return m_current;
@@ -299,8 +306,12 @@ public:
 
     private:
         void get_next() noexcept {
-            if (*this == end(m_data))
+            if (auto e = end(m_table - compressed_size_info().first);
+                m_data == e.m_data && m_bit == e.m_bit)
+            {
+                m_current = -1;
                 return;
+            }
             if constexpr (bytes_saved() > 0) {
                 auto *node = m_table;
                 int data = *m_data;
@@ -375,5 +386,8 @@ constexpr auto operator ""_huffman()
 {
     return huffman_compressor<hsc>();
 }
+
+template <detail::huffman_string_container hsc>
+constexpr auto huffman_compress = huffman_compressor<hsc>();
 
 #endif // TCSULLIVAN_CONSTEVAL_HUFFMAN_HPP_
