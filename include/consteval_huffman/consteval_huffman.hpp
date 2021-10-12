@@ -390,4 +390,17 @@ constexpr auto operator ""_huffman()
 template <detail::huffman_string_container hsc>
 constexpr auto huffman_compress = huffman_compressor<hsc>();
 
+namespace detail
+{
+    template <typename T, T... list>
+    class huffman_compress_array_container {
+    private:
+        constexpr static T uncompressed[] = {list...};
+    public:
+        constexpr static auto data = huffman_compress<uncompressed>;
+    };
+}
+template <typename T, T... list>
+constexpr auto huffman_compress_array = detail::huffman_compress_array_container<T, list...>::data;
+
 #endif // TCSULLIVAN_CONSTEVAL_HUFFMAN_HPP_
